@@ -1,41 +1,65 @@
-const { ShardingManager, WebhookClient, EmbedBuilder } = require('discord.js');
-const chalk = new require('chalk');
-const { token, shard: totalShards, webhook: url } = require("./config.json");
-const kullanıcıAdı = "v14-genel bot";
-let wb;
+const humanize = require("humanize-duration");
+const { PermissionsBitField, EmbedBuilder, SlashCommandBuilder, IntegrationApplication } = require("discord.js");
+const db = require("croxydb")
+module.exports = {
+    data: new SlashCommandBuilder()
+        .setName('shard')
+        .setDescription('Botun shard bilgilerini gösterir.'),
+    
+    run: async (client, interaction) => {
 
-if (url) {
-    try {
-        wb = new WebhookClient({ url });
-    } catch (e) {
-        console.error('Webhook oluşturulamadı:', e);
+        try {
+
+            let shardInfo = {
+                ping: await client.shard.fetchClientValues("ws.ping"),
+                server_count: await client.shard.fetchClientValues("guilds.cache.size"),
+                user_count: await client.shard.fetchClientValues("users.cache.size"),
+                uptime: await client.shard.fetchClientValues("uptime"),
+                memoryUsageRss: await client.shard.broadcastEval(function () { return process.memoryUsage().rss; }),
+                voiceAdaptersSize: await client.shard.fetchClientValues("voice.adapters.size")
+            };
+
+            let shardDatas = [];
+
+            for (let i = 0; i < client.shard.count; i++) {
+                shardDatas.push({
+                    shardId: i,
+                    serverCount: shardInfo.server_count[i],
+                    userCount: shardInfo.user_count[i],
+                    ping: shardInfo.ping[i],
+                    uptime: shardInfo.uptime[i],
+                    memoryUsageRss: shardInfo.memoryUsageRss[i],
+                    voiceAdaptersSize: shardInfo.voiceAdaptersSize[i],
+                });
+            }
+
+            interaction.reply({
+                embeds: [{
+                    author: {
+                        name: `${client.user.username} • Shard Bilgileri`
+                    },
+                    fields: shardDatas.map(shardData => ({
+                        name: `**»** Shard ${shardData.shardId + 1}`,
+                        value:
+                            `**• Sunucular:** ${shardData.serverCount}\n` +
+                            `**• Kullanıcılar:** ${shardData.userCount}\n` +
+                            `**• Ping:** ${shardData.ping}ms\n` +
+                            `**• Uptime:** ${humanize(shardData.uptime, { language: "tr", round: true, largest: 2 })}\n` +
+                            `**• Memory Usage:** ${(shardData.memoryUsageRss / (1024 ** 2)).toFixed()} MB\n` +
+                            `**• VoiceAdapters:** ${shardData.voiceAdaptersSize}`,
+                        inline: true,
+                    })),
+                    footer: {
+                        text: `Bu sunucu şu anda ${interaction.guild.shard.id + 1}. Shard'da bulunuyor.`,
+                        icon_url: interaction.guild.iconURL(),
+                    },
+                }]
+            });
+
+        } catch (err) {
+            await interaction.reply({ content: "Elimde olmayan sebeplerden dolayı verileri alamadım :/" });
+
+        }
+
     }
-}
-
-const manager = new ShardingManager('bot.js', { token, respawn: true, totalShards });
-
-manager.on('shardCreate', shard => {
-    console.log(chalk.green(`[SHARD SYSTEM] `) + chalk.red(`#${shard.id} ID'li shard başarıyla başlatıldı`));
-    if (wb) {
-        shard.on("disconnect", () => {
-            wb.send({ embeds: [new EmbedBuilder().setDescription(`**<:offline:1136224802340880484> \`#${shard.id}\` - ID'li shardın bağlantısı koptu, yeniden başlatılmayı deniyor**`).setColor("Red")] });
-        });
-        shard.on("reconnecting", () => {
-            wb.send({ embeds: [new EmbedBuilder().setDescription(`**<:online:1136224896461045910> \`#${shard.id}\` - ID'li shard yeniden başlatılıyor**`).setColor("Green")] });
-        });
-        shard.on("ready", async () => {
-            wb.send({ embeds: [new EmbedBuilder().setDescription(`**<:bosta:1136225253874479134> \`#${shard.id}\` - ID'li shard başarıyla başlatıldı**`).setColor("Yellow")] });
-        });
-        shard.on("death", () => {
-            wb.send({ embeds: [new EmbedBuilder().setDescription(`**<:offline:1136224802340880484> \`#${shard.id}\` - ID'li shardın bağlantısı koptu, yeniden başlatılmayı deniyor**`).setColor("Red")] });
-        });
-        shard.on("error", (err) => {
-            wb.send({ embeds: [new EmbedBuilder().setDescription(`**‼️ \`#${shard.id}\` - ID'li shard'a bir hata oluştu\n\n• ${err}**`).setColor("Red")] });
-        });
-    }
-});
-
-manager.spawn().then(() => {
-    if (wb) wb.send({ embeds: [new EmbedBuilder().setDescription(`**Bütün shard'lar başarıyla başlatıldı ve kullanıma hazır**`).setColor("DarkPurple")] });
-    console.log(chalk.green(`[SHARD SYSTEM] `) + chalk.red(`Bot Aktif Edildi !`));
-});
+};
